@@ -7,7 +7,7 @@ A persistent, compounding knowledge base for Claude Code. Every decision, patter
 Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Run in your terminal:
 
 ```bash
-git clone https://github.com/Stritheo/wiki-kb.git
+git clone https://github.com/madebymiles/wiki-kb.git
 cd wiki-kb && ./setup.sh ~/path/to/your-project
 ```
 
