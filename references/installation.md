@@ -49,25 +49,38 @@ Restart Claude Code and verify: type `/wiki` and confirm 8 commands appear.
 
 ## 2. Merge hooks into settings.json
 
-Add these to the existing arrays in `.claude/settings.json`. Keep all agentic-eng hooks.
+Add these to the existing arrays in `.claude/settings.json`. Keep all agentic-eng hooks. Add the wiki hooks to **every project** that should have wiki context at session start.
 
-**SessionStart array -- add:**
+**SessionStart array -- add this hook to the existing hooks array:**
 ```json
 {
   "type": "command",
-  "command": "[ -f wiki/index.md ] && echo '[WIKI] Knowledge base loaded.' && head -20 wiki/index.md || echo '[WIKI] No wiki. Run /wiki-status to init.'",
+  "command": "WIKI_ROOT=\"$HOME/Projects/YOUR_SUPER_REPO/wiki\" && [ -f \"$WIKI_ROOT/index.md\" ] && echo '[WIKI] Knowledge base loaded.' && head -50 \"$WIKI_ROOT/index.md\" || true",
   "timeout": 5
 }
 ```
 
-**Stop array -- add (after verification hook):**
+Replace `YOUR_SUPER_REPO` with the directory name containing your `wiki/` folder. For single-project setups where wiki is in the project root, use `"[ -f wiki/index.md ] && echo '[WIKI] Knowledge base loaded.' && head -50 wiki/index.md || true"` instead.
+
+**Stop array -- add a new entry (not inside an existing hooks array):**
 ```json
 {
-  "type": "command",
-  "command": "echo \"[WIKI] Session ended. Project: $(basename $(pwd)) | $(date '+%Y-%m-%d-%H%M%S')\"",
-  "timeout": 5
+  "matcher": "",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "WIKI_ROOT=\"$HOME/Projects/YOUR_SUPER_REPO/wiki\" && INBOX=\"$WIKI_ROOT/raw/inbox\" && COUNT=$(find \"$INBOX\" -type f -not -name \".*\" 2>/dev/null | wc -l | tr -d ' ') && echo \"[WIKI] Session ended. Project: $(basename $(pwd)). Inbox: $COUNT sources pending.\"",
+      "timeout": 5
+    }
+  ]
 }
 ```
+
+**Important notes:**
+- The SessionStart hook is added **inside** an existing matcher's `hooks` array (alongside other session hooks).
+- The Stop hook is added as a **new entry** in the Stop array (a new matcher block).
+- The `-not -name ".*"` in the find command excludes `.gitkeep` and other dotfiles from the inbox count.
+- For multi-project setups, use the absolute `WIKI_ROOT` path. For single-project setups, relative `wiki/` paths work.
 
 ---
 
@@ -233,6 +246,11 @@ launchctl load ~/Library/LaunchAgents/com.wiki.compile.plist
 launchctl load ~/Library/LaunchAgents/com.wiki.weekly.plist
 launchctl list | grep wiki
 ```
+
+**Known issues (fixed in live deployment):**
+- `wiki-decay.sh` returns exit code 1 from its `while read` loop even when no pages need decay. The compile script wraps the call with `|| true`.
+- `claude` CLI is installed via nvm, which isn't on PATH in launchd context. Both scripts source `$NVM_DIR/nvm.sh` before calling claude.
+- `claude --print` needs `--dangerously-skip-permissions` and `--cwd` for unattended cron execution.
 
 ---
 

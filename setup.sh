@@ -119,14 +119,23 @@ if [ -f "$SETTINGS_FILE" ]; then
         echo "  Wiki hooks already present. Skipping."
     else
         echo "  Existing settings.json found. Wiki hooks need to be merged manually."
-        echo "  See references/installation.md for the hook configuration to add."
+        echo "  See references/installation.md section 2 for the hook configuration to add."
         echo ""
-        echo -e "  ${DIM}SessionStart: [ -f wiki/index.md ] && echo '[WIKI] Knowledge base loaded.' && head -20 wiki/index.md || true${NC}"
-        echo -e "  ${DIM}Stop: echo \"[WIKI] Session ended. Project: \$(basename \$(pwd))\"${NC}"
+        echo -e "  ${DIM}SessionStart: WIKI_ROOT=...wiki && [ -f \"\$WIKI_ROOT/index.md\" ] && head -50 \"\$WIKI_ROOT/index.md\" || true${NC}"
+        echo -e "  ${DIM}Stop: ... echo \"[WIKI] Session ended. Project: ... Inbox: \$COUNT sources pending.\"${NC}"
     fi
 else
     # No settings.json -- create one with wiki hooks
-    cat > "$SETTINGS_FILE" << 'SETTINGS'
+    # Detect wiki location: local wiki/ or parent directory wiki/
+    if [ -d "$TARGET/wiki" ]; then
+        WIKI_CMD="[ -f wiki/index.md ] && echo '[WIKI] Knowledge base loaded.' && head -50 wiki/index.md || true"
+        INBOX_CMD="INBOX=wiki/raw/inbox && COUNT=\$(find \"\$INBOX\" -type f -not -name \".*\" 2>/dev/null | wc -l | tr -d ' ') && echo \"[WIKI] Session ended. Project: \$(basename \$(pwd)). Inbox: \$COUNT sources pending.\""
+    else
+        WIKI_CMD="WIKI_ROOT=\"$TARGET/wiki\" && [ -f \"\$WIKI_ROOT/index.md\" ] && echo '[WIKI] Knowledge base loaded.' && head -50 \"\$WIKI_ROOT/index.md\" || true"
+        INBOX_CMD="WIKI_ROOT=\"$TARGET/wiki\" && INBOX=\"\$WIKI_ROOT/raw/inbox\" && COUNT=\$(find \"\$INBOX\" -type f -not -name \".*\" 2>/dev/null | wc -l | tr -d ' ') && echo \"[WIKI] Session ended. Project: \$(basename \$(pwd)). Inbox: \$COUNT sources pending.\""
+    fi
+
+    cat > "$SETTINGS_FILE" << SETTINGS
 {
   "hooks": {
     "SessionStart": [
@@ -135,7 +144,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "[ -f wiki/index.md ] && echo '[WIKI] Knowledge base loaded.' && head -20 wiki/index.md || true",
+            "command": "$WIKI_CMD",
             "timeout": 5
           }
         ]
@@ -147,7 +156,7 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "echo \"[WIKI] Session ended. Project: $(basename $(pwd)) | $(date '+%Y-%m-%d-%H%M%S')\"",
+            "command": "$INBOX_CMD",
             "timeout": 5
           }
         ]
