@@ -108,18 +108,28 @@ LOG_FILE="$SUPER_REPO/wiki/reports/cron.log"
 cd "$SUPER_REPO" || exit 1
 
 # Metadata-only confidence decay (zero token cost)
-~/scripts/wiki-decay.sh "$SUPER_REPO/wiki" >> "$LOG_FILE" 2>&1
+# || true because the decay script's while-read loop returns exit 1
+# when find produces results but the pipe exits after processing
+~/scripts/wiki-decay.sh "$SUPER_REPO/wiki" >> "$LOG_FILE" 2>&1 || true
 
 # Check inbox
 INBOX_COUNT=$(find wiki/raw/inbox -type f 2>/dev/null | wc -l | tr -d ' ')
 if [ "$INBOX_COUNT" -eq "0" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M')] No sources. Decay complete." >> "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M')] No sources in inbox. Decay complete." >> "$LOG_FILE"
     exit 0
 fi
 
 echo "[$(date '+%Y-%m-%d %H:%M')] Compiling $INBOX_COUNT sources..." >> "$LOG_FILE"
-claude --print "/wiki-compile" >> "$LOG_FILE" 2>&1
-echo "[$(date '+%Y-%m-%d %H:%M')] Done." >> "$LOG_FILE"
+
+# Source nvm so claude is on PATH in launchd context
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+claude --print --dangerously-skip-permissions \
+    "/wiki-compile" \
+    --cwd "$SUPER_REPO" \
+    >> "$LOG_FILE" 2>&1
+echo "[$(date '+%Y-%m-%d %H:%M')] Daily compile done." >> "$LOG_FILE"
 ```
 
 ### Weekly maintenance (Sunday 1800 AEST)
@@ -129,28 +139,44 @@ Create `~/scripts/wiki-weekly.sh`:
 ```bash
 #!/bin/bash
 SUPER_REPO="$HOME/path/to/your/super-repo"
-LOG_FILE="$SUPER_REPO/wiki/reports/cron.log"
+WIKI_ROOT="$SUPER_REPO/wiki"
+LOG_FILE="$WIKI_ROOT/reports/cron.log"
 
 cd "$SUPER_REPO" || exit 1
 
+mkdir -p "$WIKI_ROOT/reports/archive"
+
 # Log rotation (keep last 500 lines)
-tail -500 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+if [ -f "$LOG_FILE" ]; then
+    tail -500 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+fi
+
+# Source nvm so claude is on PATH in launchd context
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
 # Lint (incremental -- only modified pages + 10% sample)
 echo "[$(date '+%Y-%m-%d %H:%M')] Weekly lint..." >> "$LOG_FILE"
-claude --print "/wiki-lint" >> "$LOG_FILE" 2>&1
+claude --print --dangerously-skip-permissions \
+    "/wiki-lint" \
+    --cwd "$SUPER_REPO" \
+    >> "$LOG_FILE" 2>&1
 
-# Challenge (skip if quiet week)
-WEEK_SOURCES=$(grep -c "compile\|ingest" "$LOG_FILE" 2>/dev/null | tail -1)
+# Challenge (skip if fewer than 3 sources compiled this week)
+WEEK_SOURCES=$(grep -c "compile\|ingest" "$LOG_FILE" 2>/dev/null || echo "0")
 if [ "${WEEK_SOURCES:-0}" -ge 3 ]; then
     echo "[$(date '+%Y-%m-%d %H:%M')] Weekly challenge..." >> "$LOG_FILE"
-    claude --print "/wiki-challenge" >> "$LOG_FILE" 2>&1
+    claude --print --dangerously-skip-permissions \
+        "/wiki-challenge" \
+        --cwd "$SUPER_REPO" \
+        >> "$LOG_FILE" 2>&1
 else
     echo "[$(date '+%Y-%m-%d %H:%M')] Quiet week ($WEEK_SOURCES sources). Challenge skipped." >> "$LOG_FILE"
 fi
 
-# Report rotation (archive >90 days)
-find "$SUPER_REPO/wiki/reports" -maxdepth 1 -name '*.md' -mtime +90 -exec mv {} "$SUPER_REPO/wiki/reports/archive/" \;
+# Report rotation (archive reports older than 90 days)
+find "$WIKI_ROOT/reports" -maxdepth 1 -name '*.md' -mtime +90 \
+    -exec mv {} "$WIKI_ROOT/reports/archive/" \;
 
 echo "[$(date '+%Y-%m-%d %H:%M')] Weekly complete." >> "$LOG_FILE"
 ```
